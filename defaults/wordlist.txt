@@ -1,0 +1,79 @@
+# FilterAgent wordlist — one word or phrase per line.
+# * = wildcard (damn* matches damned, dammit, ...)
+# Lines starting with # are ignored, except "# category: NAME" markers,
+# which start a new section. Entries before the first marker belong to
+# "profanity". Categories are toggled independently in Settings > Wordlist.
+
+# category: profanity
+*damn*
+hell
+*fuck*
+goddam*
+bitch*
+*shit*
+dick*
+douche*
+asshole*
+bastard*
+ass
+asses
+wanker
+clit
+clitoris
+cock*
+cunt*
+porn*
+labia
+humping
+orgas*
+pussies
+pussy*
+piss*
+dildo*
+ejaculat*
+slut*
+cum
+cums
+cumming
+cumshot
+whore
+anus
+blowjob
+pecker*
+penis*
+tit
+tits
+titty
+titties
+fellatio
+*nigger*
+nigg*
+negro
+fag
+fags
+faggot*
+spastic
+spaz
+wetback
+chink
+gook
+gringo
+homo
+lesbo
+paki
+twat*
+retard
+
+# category: religious_identity
+# Neutral religious exclamations and LGBTQ+/ethnic identity terms — off by
+# default. These aren't slurs but frequently false-positive on innocuous
+# lines ("thank god", "she's gay", "he's Jewish"). Enable in Settings if
+# you want them muted too.
+christ
+jesus
+allah
+god
+jew
+gay*
+lesbian
+queer*

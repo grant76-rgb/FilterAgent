@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Per-movie working data (frames, cached analysis, review sheets)
+.filteragent/
+
+# Generated output (users' own movies/EDLs shouldn't be committed)
+*.edl
+*.en.srt
+
+# Editor/OS cruft
+.vscode/
+.idea/
+Thumbs.db

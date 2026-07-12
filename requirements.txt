@@ -1,0 +1,7 @@
+pyyaml
+pysrt
+scenedetect[opencv]
+nudenet
+plyer
+subliminal
+faster-whisper   # word-exact mutes; enabled in config.yaml by default here

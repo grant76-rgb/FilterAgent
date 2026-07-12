@@ -1,0 +1,57 @@
+# FilterAgent default configuration
+# Live copy is in %APPDATA%\FilterAgent\config.yaml — edit via the Settings
+# window (run app.py with no arguments) or by hand.
+
+subtitles:
+  auto_download: true      # fetch a subtitle online (via subliminal) if none is embedded/external
+  languages: [eng]         # ISO 639-3 codes, e.g. [eng, spa]
+
+profanity:
+  enabled: true
+  mute_pad_before: 0.25
+  mute_pad_after: 0.35
+  use_whisper_alignment: false   # word-exact mutes; slower, needs faster-whisper
+  whisper_fallback: true         # if no subtitles at all (embedded/external/downloaded), transcribe with faster-whisper instead of skipping
+  censor_subtitles: true         # write banned words as *** to an external .srt
+  categories:                    # toggle wordlist.txt "# category: NAME" sections
+    profanity: true
+    religious_identity: false    # god/gay/jew/queer etc. — see wordlist.txt
+
+nsfw:
+  enabled: true
+  # Sensitivity preset applied in the GUI: strict | moderate | custom
+  preset: moderate
+  # Per-label thresholds (0-1, lower = more sensitive). The GUI edits these.
+  # COVERED labels catch lingerie/underwear scenes; enable for strict mode.
+  labels:
+    FEMALE_BREAST_EXPOSED:    {enabled: true,  threshold: 0.60}
+    FEMALE_GENITALIA_EXPOSED: {enabled: true,  threshold: 0.50}
+    MALE_GENITALIA_EXPOSED:   {enabled: true,  threshold: 0.50}
+    BUTTOCKS_EXPOSED:         {enabled: true,  threshold: 0.65}
+    ANUS_EXPOSED:             {enabled: true,  threshold: 0.50}
+    FEMALE_BREAST_COVERED:    {enabled: false, threshold: 0.75}
+    BUTTOCKS_COVERED:         {enabled: false, threshold: 0.75}
+    MALE_BREAST_EXPOSED:      {enabled: false, threshold: 0.80}
+    BELLY_EXPOSED:            {enabled: false, threshold: 0.85}
+  scene_skip_ratio: 0.30
+  span_pad: 2.0
+
+scenes:
+  threshold: 27.0
+
+sampling:
+  fps: 1.0
+
+edl:
+  merge_gap: 1.5
+  min_skip_length: 0.8
+  skip_action: 0            # 0 = silent skip, 3 = skip with Kodi notification
+
+review:
+  open_after: true          # open review.html in browser when done
+  show_frames: true         # show the triggered thumbnail for each cut by default (toggle in the review page or here)
+
+cleanup:
+  delete_workdir: true      # delete .filteragent\<name>\ (frames, cached
+                             # scene/analysis data) after each run. Turn off
+                             # to speed up re-runs while tuning settings.
