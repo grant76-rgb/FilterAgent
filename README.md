@@ -202,8 +202,11 @@ every movie from then on.
 
 ## Use it
 
-1. Right-click a `.mkv` → **Create filter EDL**. For TV, where sexual
-   content is rare, use **Create filter EDL (profanity only)** instead —
+1. Right-click a `.mkv` → **Create filter EDL**. On Windows 11, the entry
+   is hidden in the trimmed default menu — click **Show more options**
+   first (or just **Shift+Right-click** to get the full menu directly).
+   For TV, where sexual content is rare, use
+   **Create filter EDL (profanity only)** instead —
    it skips scene detection and frame sampling entirely (the slow part)
    and only runs the wordlist pass, typically finishing in under a
    minute regardless of episode length. It's a one-off override for that
@@ -224,10 +227,16 @@ every movie from then on.
    thumbnail sheet of every proposed skip/mute, sorted least-confident
    first.
    - Uncheck anything that's a false positive (sunsets and skin-tone
-     close-ups occasionally fool the classifier).
-   - If you unchecked anything, click **Export EDL**, copy the text, and
-     save it over the `.edl` file next to your movie (Notepad is fine —
-     keep the exact filename `MovieName.edl`).
+     close-ups occasionally fool the classifier). Sort by chronological
+     order or by certainty (least-confident first, the default) with the
+     dropdown at the top; toggle the trigger-frame thumbnail column with
+     the checkbox next to it.
+   - If you unchecked anything, click **Save / overwrite `MovieName.edl`**.
+     The first click asks you to pick the movie's folder (browsers won't
+     let a page write to a local path without that one-time grant); every
+     click after that overwrites the `.edl` there directly — no copy/paste
+     needed. **Export EDL** still just fills the text box below if you'd
+     rather copy the text out by hand.
 5. The `.edl`, `.en.srt` (if enabled), and `.review.html` now sit next to
    the `.mkv`. The temporary working folder used during processing is
    deleted automatically — that's the whole output.
