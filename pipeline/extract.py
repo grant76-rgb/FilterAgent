@@ -10,7 +10,11 @@ CREATE_NO_WINDOW = 0x08000000 if hasattr(subprocess, "STARTUPINFO") else 0
 
 
 def _run(cmd):
+    # ffprobe/ffmpeg emit UTF-8; Windows would otherwise decode as cp1252 and
+    # choke on non-Latin stream titles (e.g. Korean/Japanese subtitle tracks),
+    # killing the reader thread so stdout comes back None.
     return subprocess.run(cmd, capture_output=True, text=True, check=False,
+                          encoding="utf-8", errors="replace",
                           creationflags=CREATE_NO_WINDOW)
 
 
