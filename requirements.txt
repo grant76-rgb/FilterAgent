@@ -2,6 +2,7 @@ pyyaml
 pysrt
 scenedetect[opencv]
 nudenet
+pillow           # frame decoding for the verification models
 plyer
 subliminal
 faster-whisper   # word-exact mutes; enabled in config.yaml by default here

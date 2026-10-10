@@ -39,9 +39,15 @@ in the US by the Family Movie Act of 2005. It edits nothing: the original
    wordlist) that can be toggled independently — see [Configure](#configure).
 3. **Scene detection** — cut points are found so skips land cleanly instead
    of mid-shot.
-4. **Sexual content → skip** — each sampled frame is scored by
-   [NudeNet](https://github.com/notAI-tech/NudeNet), a local image
-   classifier (nothing is uploaded anywhere).
+4. **Sexual content → skip** — each sampled frame is scored by two local
+   models: [NudeNet](https://github.com/notAI-tech/NudeNet), a body-part
+   detector, and a whole-frame NSFW classifier. Either one can nominate a
+   frame, but nothing is cut until a third model, CLIP, confirms the frame
+   shows a naked body rather than a clothed or shirtless one. NudeNet on its
+   own mistook hands, microphones and bare male chests for nudity while
+   missing dark, wide or oddly posed shots; the three models make different
+   mistakes, so requiring agreement removes most of both. Everything runs on
+   your PC — nothing is uploaded anywhere.
 5. **EDL written** — `Movie.edl` is saved next to `Movie.mkv`. Kodi reads
    it automatically; action `0` silently skips, action `1` mutes.
 6. **Censored subtitles** (optional) — `Movie.en.srt` is written with
@@ -178,7 +184,11 @@ Right-click any `.mkv` → Show more options → **FilterAgent settings**
 - Start with **Moderate**. **Strict** also flags lingerie/suggestive
   categories, meaning more false positives to prune in review.
 - The per-category sliders let you dial in a specific line for a specific
-  movie — moving any slider switches the preset to Custom.
+  movie — moving any slider switches the preset to Custom. The checkboxes
+  decide which body parts count. A slider only controls how readily NudeNet
+  *nominates* frames for checking — CLIP still has to confirm each one, so
+  cranking a slider to maximum no longer floods you with false skips (and a
+  low setting can't hide nudity CLIP would confirm).
 - "Extra padding before/after a flagged moment" (default 2s) pads every
   skip. At 1 fps, detection only samples once a second, so gradual/partial
   exposure can cross the confidence threshold a few seconds after it
@@ -215,10 +225,13 @@ every movie from then on.
    content → writing EDL → censoring subtitles → cleaning up
    (profanity-only runs breeze through the scenes/sexual-content stages
    since there's nothing to do). Frame classification dominates the
-   runtime otherwise: expect roughly **20–40 minutes for a 2-hour film**
-   on CPU. The very first sexual-content run also downloads a larger,
-   more accurate detection model (~100 MB, one time only, cached in
-   `%APPDATA%\FilterAgent\models\`) — if that download fails (blocked
+   runtime otherwise: two models now score every sampled frame, so expect
+   roughly **40–80 minutes for a 2-hour film** on CPU. The very first
+   sexual-content run also downloads the detection models (~100 MB for
+   NudeNet's larger model plus ~400 MB for the classifier and CLIP, one time
+   only, cached in `%APPDATA%\FilterAgent\models\`). If the classifier/CLIP
+   download fails, that run falls back to NudeNet alone, with its false
+   positives — the log says so. If the NudeNet download fails (blocked
    network, proxy, etc.) it automatically falls back to the smaller
    model bundled with the app rather than failing the run.
 3. A Windows notification fires when the run finishes (or fails), so you
@@ -274,11 +287,12 @@ from the review sheet.
 | Right-click entry missing | On Win11 it's under "Show more options". Still missing: re-run `python install_context_menu.py` from the install folder. |
 | Right-click entry does nothing | The install folder moved or was renamed. Re-run `python install_context_menu.py` from its new location. |
 | `No text subtitles found` warning | The MKV has image-based (PGS) subs or none. Drop a matching `MovieName.srt` next to the file and re-run, or enable Whisper alignment to transcribe the audio directly. |
-| First NSFW run stalls at start | It's downloading the detection model (~100 MB) — give it a minute. |
-| Log says "Model download failed" | Your network/proxy is blocking the download (e.g. a captive portal or firewall intercepting it). The run still completes using the smaller built-in model — lower accuracy, but not fatal. To use the better model anyway, manually download [`640m.onnx`](https://github.com/notAI-tech/NudeNet/releases/download/v3.4-weights/640m.onnx) from a machine/network that can reach it, and place it at `%APPDATA%\FilterAgent\models\640m.onnx`. |
+| First NSFW run stalls at start | It's downloading the detection models (~500 MB total, first run only) — give it a few minutes. |
+| Log says "Model download failed" | Your network/proxy is blocking the download (e.g. a captive portal or firewall intercepting it). The run still completes — with the smaller built-in NudeNet model if `640m.onnx` failed, or with NudeNet alone (more false positives) if a verification model failed. To fix it, download the files from a machine/network that can reach them and place them in `%APPDATA%\FilterAgent\models\`: [`640m.onnx`](https://github.com/notAI-tech/NudeNet/releases/download/v3.4-weights/640m.onnx); [`model_quantized.onnx`](https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/8587de998f441aac03fdd57a85d2e4cb808c7d64/onnx/model_quantized.onnx) saved as `vit_nsfw_int8.onnx`; [`vision_model_quantized.onnx`](https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/c307790166907339eed5a9a53a249af534102536/onnx/vision_model_quantized.onnx) saved as `clip_l14_vision_int8.onnx`. |
 | Mutes clip the start/end of words | Raise mute padding in Settings (try 0.4 / 0.5), or enable Whisper word-exact mutes. |
 | Skips feel jarring mid-action | Lower the scene threshold in `%APPDATA%\FilterAgent\config.yaml` (`scenes: threshold:` from 27 down to ~22) for finer scene boundaries and re-run. (If the previous run errored partway and left a `.filteragent` folder behind, delete it first so stale cached data isn't reused.) |
-| It missed something | Raise sensitivity (Strict preset, or the relevant category slider), or raise frames-per-second to 2.0 for that title, and re-run. Always do the review pass — no automated filter is 100%. |
+| It missed something | Check `analysis.json` (keep working files on in Settings): if the moment is listed under `nsfw.candidates` with a `clip` score just under the cutoff, lower `clip_confirm` (e.g. 0.86 → 0.80) under `nsfw: verify:` in `%APPDATA%\FilterAgent\config.yaml`. If it isn't listed at all, neither model nominated it — raise frames-per-second to 2.0 for that title. Re-run either way. Always do the review pass — no automated filter is 100%. |
+| Shirtless or half-dressed moments get skipped | CLIP sometimes reads a bare torso as nudity, especially when the story makes it clear the character has nothing on. Raise `clip_confirm` (e.g. to 0.92) under `nsfw: verify:` in `%APPDATA%\FilterAgent\config.yaml` — at the cost of missing some borderline real nudity. |
 | Innocuous lines like "thank god" or "she's gay" get muted | The `religious_identity` wordlist category is enabled. Uncheck "Also mute religious & identity terms" in Settings > Wordlist. |
 
 ## Uninstall
@@ -300,7 +314,7 @@ Then delete the install folder and `%APPDATA%\FilterAgent`.
 
   ```
   pip install pyinstaller
-  pyinstaller --onedir --windowed --add-data "defaults;defaults" app.py
+  pyinstaller --onedir --windowed --add-data "defaults;defaults" --add-data "pipeline/clip_prompts.npz;pipeline" app.py
   ```
 
   Then point `install_context_menu.py`'s command at the built exe.
@@ -310,8 +324,11 @@ Then delete the install folder and `%APPDATA%\FilterAgent`.
 - The wordlist ships nearly empty on purpose — bring your own.
 - NSFW detection is frame-sampled at 1fps by default; sub-second flashes
   can be missed. Raise `sampling.fps` for problem titles (slower).
-- Sunsets, skin-tone close-ups, and similar scenes can occasionally
-  trigger false positives — that's what the review sheet is for.
+- False positives are much rarer now that three models have to agree, but
+  bare torsos of characters who are naked in the story can still be
+  skipped — that's what the review sheet is for.
+- The checks look for a naked body. A sex scene where nothing is exposed
+  (under sheets, fully clothed) is not detected.
 - **Always do the review pass before family viewing.** Do not trust the
   auto-generated EDL blind.
 - This project intentionally does **not** modify or redistribute the
