@@ -55,6 +55,21 @@ def _download_subtitle(movie: Path, srt_path: Path, cfg: dict, log) -> bool:
         return False
 
 
+def _ensure_utf8(path: Path, log) -> None:
+    """Every later stage (pysrt) reads subs.srt as UTF-8, but downloaded
+    subtitles keep the provider's encoding — often Windows-1252, where an
+    accented letter crashed the censored-subtitle stage after the EDL had
+    already been written. Re-save anything that isn't valid UTF-8."""
+    raw = path.read_bytes()
+    try:
+        raw.decode("utf-8")
+        return
+    except UnicodeDecodeError:
+        pass
+    path.write_text(raw.decode("cp1252", errors="replace"), encoding="utf-8")
+    log("Subtitles weren't UTF-8 (Windows-1252) — converted.")
+
+
 def _ffmpeg_to(args, dest: Path) -> bool:
     """Runs ffmpeg into a temporary name beside `dest` and only renames it
     into place once ffmpeg succeeds. These files are reused on the next run
@@ -113,6 +128,11 @@ def run(movie: Path, workdir: Path, cfg: dict, log=print) -> dict:
                 log("WARNING: no text subtitles found — profanity pass will "
                     "be skipped (or enable Whisper alignment in Settings).")
                 srt_path = None
+    if srt_path is not None and srt_path.exists():
+        _ensure_utf8(srt_path, log)
+        # downloaded subs are often timed for another release (seconds off)
+        from . import subsync
+        subsync.sync_srt(srt_path, movie, log)
 
     # --- Audio ---------------------------------------------------------------
     wav_path = workdir / "audio.wav"
