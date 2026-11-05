@@ -4,12 +4,15 @@ Right-click any `.mkv` in Explorer → **Create filter EDL** → a Kodi-ready
 `Movie.edl` appears next to the file, muting profanity from your own
 wordlist and skipping scenes flagged by an automatic sexual-content filter.
 It can also write a censored `Movie.en.srt` with banned words swapped for
-asterisks, as an alternate subtitle track.
+asterisks, as an alternate subtitle track. For Plex and other players that
+ignore `.edl` files, `apply_edl.py` can bake the EDL into the file itself
+(see [Plex and other players](#plex-and-other-players)).
 
 Built for personal-use playback filtering — the same kind of use protected
-in the US by the Family Movie Act of 2005. It edits nothing: the original
-`.mkv` is never touched, and Kodi just skips/mutes on the fly using the
-`.edl` sidecar file.
+in the US by the Family Movie Act of 2005. The filter itself edits nothing:
+the original `.mkv` is never touched, and Kodi just skips/mutes on the fly
+using the `.edl` sidecar file. (Baking a filtered copy for Plex is a
+separate, opt-in step — see [Limitations](#limitations).)
 
 - ✅ No re-encoding — original file stays untouched
 - ✅ Runs locally — nothing leaves your machine
@@ -26,6 +29,7 @@ in the US by the Family Movie Act of 2005. It edits nothing: the original
 - [Configure](#configure)
 - [Use it](#use-it)
 - [Kodi setup](#kodi-setup)
+- [Plex and other players](#plex-and-other-players)
 - [Files & folders](#files--folders)
 - [Troubleshooting](#troubleshooting)
 - [Uninstall](#uninstall)
@@ -171,6 +175,11 @@ Right-click any `.mkv` → Show more options → **FilterAgent settings**
   check "Also mute religious & identity terms" to enable it.
 - `*` is a wildcard: `damn*` matches *damned*, *damning*, etc. Wildcards
   only extend the word, so `dammit` still needs its own line.
+- A line starting with `!` is an exception: a phrase that's never muted or
+  censored even though it contains a listed word — e.g. `!hell's kitchen`
+  (a place name) or `!cum laude`.
+- Entries can be in any language. Subtitled foreign dialogue is checked
+  against the list in its own language (so `сука` or `mierda` work).
 - "Write censored subtitles" outputs `Movie.en.srt` with muted words
   replaced by asterisks — an alternate subtitle track for Kodi. On by
   default.
@@ -276,6 +285,40 @@ menu to see the censored version instead.
 To sanity-check: play the movie and jump near a known flagged timestamp
 from the review sheet.
 
+## Plex and other players
+
+Plex (and Jellyfin, smart-TV apps, phones) ignore `.edl` files. Once you're
+happy with an EDL, `apply_edl.py` bakes it into the file:
+
+```
+python apply_edl.py "D:\TV\Show" --in-place --backup-dir "D:\FilterAgent originals"
+python apply_edl.py "D:\TV\Show" --out-dir "D:\TV (Filtered)"
+```
+
+- **Mutes** — only the audio is re-encoded (same codec and bitrate; lossless
+  sources go to FLAC), silent over each range. Video is copied bit-for-bit,
+  so this takes well under a minute per episode.
+- **Skips** — the video has to be re-encoded (H.264, or HEVC for 10-bit
+  sources), so expect roughly real-time on a CPU. Chapters and subtitles
+  are shifted to match; A/V sync is kept to the millisecond.
+- **Subtitles** — the censored `.en.srt` is embedded as an
+  "English (filtered)" track, and the original English text/image tracks
+  (which still show the words) are dropped unless `--keep-subs`. The
+  `.en.srt` is first lined up with the disc's own subtitle track (see
+  below).
+- **Checks** — every output is verified before it's kept: duration, track
+  count, and that each muted range really is silent.
+- `--in-place` replaces the file (Plex keeps its metadata and watch
+  history) and moves the original, its `.edl` and `.en.srt` into the backup
+  folder under their full path. **Keep the backup folder outside your Plex
+  library folders**, or Plex lists the originals too. `--out-dir` instead
+  writes filtered copies into a separate folder you can add as its own Plex
+  library (e.g. for a kid's managed account); episodes with nothing to
+  filter are hard-linked so seasons stay complete.
+- Files FilterAgent is still working on, files already filtered, and files
+  that are in use (playing) are skipped, so it's safe to point it at a
+  whole show folder. `--dry-run` shows the plan without writing anything.
+
 ## Files & folders
 
 | Path | Contents |
@@ -297,7 +340,9 @@ from the review sheet.
 | `No text subtitles found` warning | The MKV has image-based (PGS) subs or none. Drop a matching `MovieName.srt` next to the file and re-run, or enable Whisper alignment to transcribe the audio directly. |
 | First NSFW run stalls at start | It's downloading the detection models (~500 MB total, first run only) — give it a few minutes. |
 | Log says "Model download failed" | Your network/proxy is blocking the download (e.g. a captive portal or firewall intercepting it). The run still completes — with the smaller built-in NudeNet model if `640m.onnx` failed, or with NudeNet alone (more false positives) if a verification model failed. To fix it, download the files from a machine/network that can reach them and place them in `%APPDATA%\FilterAgent\models\`: [`640m.onnx`](https://github.com/notAI-tech/NudeNet/releases/download/v3.4-weights/640m.onnx); [`model_quantized.onnx`](https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/8587de998f441aac03fdd57a85d2e4cb808c7d64/onnx/model_quantized.onnx) saved as `vit_nsfw_int8.onnx`; [`vision_model_quantized.onnx`](https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/c307790166907339eed5a9a53a249af534102536/onnx/vision_model_quantized.onnx) saved as `clip_l14_vision_int8.onnx`. |
-| Mutes clip the start/end of words | Raise mute padding in Settings (try 0.4 / 0.5), or enable Whisper word-exact mutes. |
+| Mutes clip the start/end of words | Raise mute padding in Settings (try 0.4 / 0.5), or enable Whisper word-exact mutes. With Whisper, word mutes are already stretched over the audible word (`refine_word_edges`). |
+| Censored subtitles are seconds early/late | Downloaded subtitles are often timed for another release. They're now lined up automatically with the file's own subtitle track (usually the disc's image-based one); the log says by how much. If it says "timing drifts" or "no usable subtitle track", drop a matching `MovieName.srt` next to the file and re-run. |
+| A swear in the subtitles wasn't muted | With Whisper on, the subtitle cross-check (`recheck_with_subtitles`) re-listens to such lines with `large-v3` (≈3 GB, downloaded once) and mutes the word. Subtitled foreign dialogue is only muted where what's said is on your wordlist — add the foreign word if you want it muted. |
 | Skips feel jarring mid-action | Lower the scene threshold in `%APPDATA%\FilterAgent\config.yaml` (`scenes: threshold:` from 27 down to ~22) for finer scene boundaries and re-run. (If the previous run errored partway and left a `.filteragent` folder behind, delete it first so stale cached data isn't reused.) |
 | It missed something | Check `analysis.json` (keep working files on in Settings): if the moment is listed under `nsfw.candidates` with a `clip` score just under the cutoff, lower `clip_confirm` (e.g. 0.86 → 0.80) under `nsfw: verify:` in `%APPDATA%\FilterAgent\config.yaml`. If it isn't listed at all, neither model nominated it — raise frames-per-second to 2.0 for that title. Re-run either way. Always do the review pass — no automated filter is 100%. |
 | Shirtless or half-dressed moments get skipped | CLIP sometimes reads a bare torso as nudity, especially when the story makes it clear the character has nothing on. Raise `clip_confirm` (e.g. to 0.92) under `nsfw: verify:` in `%APPDATA%\FilterAgent\config.yaml` — at the cost of missing some borderline real nudity. |
@@ -316,7 +361,17 @@ Then delete the install folder and `%APPDATA%\FilterAgent`.
 - **Word-exact mutes** — if cue-level muting silences too much dialogue:
   `pip install faster-whisper`, then enable "Word-exact mutes via
   Whisper" in Settings. Adds ~10–20 min per movie but mutes only the word
-  itself.
+  itself. Two accuracy passes run on top of it:
+  - *Subtitle cross-check* — wherever the subtitles have a listed word but
+    the line got no mute, that line is re-transcribed with the larger
+    `large-v3` model and the word located: heard directly, or placed by
+    lining the subtitle up with what was heard, or (last resort) the whole
+    line muted and flagged low-confidence on the review sheet. On a
+    13-episode season this caught ~30 words the main pass missed.
+  - *Word edges* — Whisper's word timestamps often end early (e.g. the
+    "-tch" of a word left audible), so each word mute is stretched over the
+    burst of speech it sits in, measured on the dialogue (centre) channel:
+    never shortened, at most 0.15 s earlier / 0.3 s later.
 - **Single .exe, no Python required on the target machine** — once you're
   happy with behavior:
 
@@ -339,11 +394,14 @@ Then delete the install folder and `%APPDATA%\FilterAgent`.
   (under sheets, fully clothed) is not detected.
 - **Always do the review pass before family viewing.** Do not trust the
   auto-generated EDL blind.
-- This project intentionally does **not** modify or redistribute the
-  underlying video/audio — it only generates a sidecar EDL (and
-  optionally a censored subtitle track), consistent with personal-use
-  filtering exemptions like the Family Movie Act. It is not legal advice;
-  check the rules in your jurisdiction.
+- The filter itself does **not** modify or redistribute the underlying
+  video/audio — it only generates a sidecar EDL (and optionally a censored
+  subtitle track), consistent with personal-use filtering exemptions like
+  the Family Movie Act. `apply_edl.py` is different: it writes a filtered
+  copy of the file, and the Family Movie Act's exemption covers filtering
+  only where no fixed copy of the altered version is made. Keep baked files
+  to your own household's viewing and never distribute them. None of this
+  is legal advice; check the rules in your jurisdiction.
 
 ## License
 
