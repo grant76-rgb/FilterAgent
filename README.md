@@ -234,6 +234,14 @@ every movie from then on.
    positives — the log says so. If the NudeNet download fails (blocked
    network, proxy, etc.) it automatically falls back to the smaller
    model bundled with the app rather than failing the run.
+
+   The run uses below-normal CPU priority, so it gets out of the way of
+   whatever else you're doing. If the PC still bogs down (say, two movies
+   at once), click **Pause**: the run stops using CPU entirely — including
+   any ffmpeg it started — but keeps its place in memory, and **Resume**
+   continues exactly where it stopped, at any stage. **Cancel** (or
+   closing the window) stops everything; the working folder is kept, so a
+   re-run reuses whatever was already extracted.
 3. A Windows notification fires when the run finishes (or fails), so you
    don't have to watch the window.
 4. When it finishes, `MovieName.review.html` opens in your browser — a

@@ -1,18 +1,42 @@
-"""Progress window: runs the pipeline in a worker thread, streams log lines,
-writes the EDL next to the movie, optionally opens the review sheet."""
+"""Progress window: runs the pipeline in a separate worker process
+(gui/worker.py), streams its log, writes the EDL next to the movie,
+optionally opens the review sheet.
 
+Pause freezes the worker and every ffmpeg it started (no CPU used, memory
+kept) and Resume picks up exactly where it stopped; Cancel or closing the
+window ends them all. The worker runs at below-normal priority, so even
+unpaused it yields the CPU to whatever else you're doing.
+"""
+
+import collections
+import json
+import os
 import queue
+import subprocess
+import sys
+import tempfile
 import threading
-import traceback
 import webbrowser
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
+from gui import proctree
 from gui.notify import notify
 
 STAGES = ["Extracting", "Profanity", "Scenes", "Sexual content", "Writing EDL",
           "Censoring subtitles", "Cleaning up"]
+TOOL_DIR = Path(__file__).resolve().parent.parent
+BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+
+
+def _python() -> str:
+    """The worker needs real stdout/stderr handles, so use python.exe even
+    when this window was started with pythonw.exe (CREATE_NO_WINDOW keeps
+    it invisible either way)."""
+    exe = Path(sys.executable)
+    console = exe.with_name("python.exe")
+    return str(console if exe.name.lower() == "pythonw.exe" and console.exists() else exe)
 
 
 class ProgressWindow:
@@ -20,12 +44,20 @@ class ProgressWindow:
         self.movie = movie
         self.cfg = cfg
         self.q = queue.Queue()
+        self.proc = None
+        self.job = None
+        self.suspended = None      # PIDs frozen by Pause, or None while running
+        self.finished = False
+        self.cancelled = False
+        self.stage_text = "Starting..."
+        self.stderr_tail = collections.deque(maxlen=30)
 
         self.root = tk.Tk()
         self.root.title(f"FilterAgent — {movie.name}")
         self.root.geometry("560x380")
+        self.root.protocol("WM_DELETE_WINDOW", self._close)
 
-        self.stage_lbl = ttk.Label(self.root, text="Starting...",
+        self.stage_lbl = ttk.Label(self.root, text=self.stage_text,
                                    font=("Segoe UI", 11, "bold"))
         self.stage_lbl.pack(anchor="w", padx=10, pady=(10, 2))
 
@@ -41,71 +73,86 @@ class ProgressWindow:
         self.log.pack(side="left", fill="both", expand=True)
         ys.pack(side="right", fill="y")
 
-        self.close_btn = ttk.Button(self.root, text="Cancel",
-                                    command=self.root.destroy)
-        self.close_btn.pack(pady=(0, 10))
+        buttons = ttk.Frame(self.root)
+        buttons.pack(pady=(0, 10))
+        self.pause_btn = ttk.Button(buttons, text="Pause",
+                                    command=self._toggle_pause)
+        self.pause_btn.pack(side="left", padx=4)
+        self.close_btn = ttk.Button(buttons, text="Cancel", command=self._close)
+        self.close_btn.pack(side="left", padx=4)
 
-    # -- worker ---------------------------------------------------------------
-    def _emit(self, kind, payload):
-        self.q.put((kind, payload))
+    # -- worker process -------------------------------------------------------
+    def _start(self):
+        fd, cfg_path = tempfile.mkstemp(prefix="filteragent_", suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(self.cfg, f)
+        self.proc = subprocess.Popen(
+            # absolute: the worker runs from the install folder, not ours
+            [_python(), "-m", "gui.worker", str(self.movie.resolve()), cfg_path],
+            cwd=TOOL_DIR, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS)
+        self.job = proctree.bind_to_this_process(int(self.proc._handle))
+        threading.Thread(target=self._read_events, daemon=True).start()
+        threading.Thread(target=self._read_stderr, daemon=True).start()
 
-    def _worker(self):
-        try:
-            from pipeline import extract, profanity, scenes, nsfw, edl, subtitles, review, cleanup
+    def _read_events(self):
+        ended = False
+        for line in self.proc.stdout:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            ended = ended or ev["kind"] in ("done", "error")
+            self.q.put((ev["kind"], ev["payload"]))
+        code = self.proc.wait()
+        if not ended and not self.cancelled:
+            self.q.put(("error", f"The worker stopped unexpectedly (exit code "
+                                 f"{code}).\n" + "".join(self.stderr_tail)))
 
-            workdir = self.movie.parent / ".filteragent" / self.movie.stem
-            workdir.mkdir(parents=True, exist_ok=True)
+    def _read_stderr(self):
+        # must keep draining, or a chatty library fills the pipe and the
+        # worker blocks; the tail is shown if the worker dies without a word
+        for line in self.proc.stderr:
+            self.stderr_tail.append(line.decode("utf-8", "replace"))
 
-            self._emit("stage", 0)
-            assets = extract.run(self.movie, workdir, self.cfg,
-                                 log=lambda m: self._emit("log", m))
+    # -- buttons --------------------------------------------------------------
+    def _toggle_pause(self):
+        if self.finished or not self.proc or self.proc.poll() is not None:
+            return
+        if self.suspended is None:
+            self.suspended = proctree.suspend_tree(self.proc.pid)
+            self.pause_btn.config(text="Resume")
+            self._append("--- Paused (no CPU in use; Resume continues where it stopped) ---")
+        else:
+            proctree.resume_tree(self.suspended)
+            self.suspended = None
+            self.pause_btn.config(text="Pause")
+            self._append("--- Resumed ---")
+        self._show_stage()
 
-            ranges = []
-            self._emit("stage", 1)
-            if self.cfg["profanity"]["enabled"]:
-                ranges += profanity.scan(assets, self.cfg,
-                                         log=lambda m: self._emit("log", m))
-            else:
-                self._emit("log", "Profanity muting disabled in settings.")
-
-            self._emit("stage", 2)
-            if self.cfg["nsfw"]["enabled"]:
-                scene_list = scenes.detect(self.movie, workdir, self.cfg,
-                                           log=lambda m: self._emit("log", m))
-            else:
-                scene_list = []
-                self._emit("log", "Sexual content filter disabled — "
-                                  "skipping scene detection.")
-
-            self._emit("stage", 3)
-            if self.cfg["nsfw"]["enabled"]:
-                ranges += nsfw.scan(assets, scene_list, self.cfg,
-                                    log=lambda m: self._emit("log", m),
-                                    progress=lambda p: self._emit("frameprog", p))
-            else:
-                self._emit("log", "Sexual content filter disabled in settings.")
-
-            self._emit("stage", 4)
-            edl_path = edl.write(self.movie, ranges, workdir, self.cfg,
-                                 log=lambda m: self._emit("log", m))
-
-            self._emit("stage", 5)
-            srt_path = subtitles.censor(assets, self.movie, self.cfg,
-                                        log=lambda m: self._emit("log", m))
-
-            sheet = review.build_contact_sheet(workdir, self.movie, self.cfg)
-
-            self._emit("stage", 6)
-            sheet = cleanup.finalize(
-                self.movie, workdir, sheet,
-                delete_workdir=self.cfg["cleanup"].get("delete_workdir", True),
-                log=lambda m: self._emit("log", m))
-
-            self._emit("done", (edl_path, sheet, srt_path))
-        except Exception:
-            self._emit("error", traceback.format_exc())
+    def _close(self):
+        if self.proc and self.proc.poll() is None:
+            self.cancelled = True
+            proctree.kill_tree(self.proc.pid)
+        self.root.destroy()
 
     # -- UI pump --------------------------------------------------------------
+    def _show_stage(self, text=None):
+        if text is not None:
+            self.stage_text = text
+        self.stage_lbl.config(text=("Paused — " if self.suspended is not None else "")
+                              + self.stage_text)
+
+    def _finish(self, label):
+        self.finished = True
+        if self.suspended:  # paused in the instant the worker was finishing
+            proctree.resume_tree(self.suspended)
+        self.suspended = None
+        self._show_stage(label)
+        self.pause_btn.config(state="disabled")
+        self.close_btn.config(text="Close")
+
     def _pump(self):
         try:
             while True:
@@ -114,29 +161,25 @@ class ProgressWindow:
                     self._append(payload)
                 elif kind == "stage":
                     self.bar["value"] = payload
-                    self.stage_lbl.config(
-                        text=f"[{payload + 1}/{len(STAGES)}] {STAGES[payload]}")
+                    self._show_stage(f"[{payload + 1}/{len(STAGES)}] {STAGES[payload]}")
                     self._append(f"--- {STAGES[payload]} ---")
                 elif kind == "frameprog":
-                    self.stage_lbl.config(
-                        text=f"[4/{len(STAGES)}] Sexual content — "
-                             f"{payload:.0%} of frames")
+                    self._show_stage(f"[4/{len(STAGES)}] Sexual content — "
+                                     f"{payload:.0%} of frames")
                 elif kind == "done":
                     edl_path, sheet, srt_path = payload
                     self.bar["value"] = len(STAGES)
-                    self.stage_lbl.config(text="Done")
+                    self._finish("Done")
                     self._append(f"\nEDL written: {edl_path}")
                     if srt_path:
                         self._append(f"Censored subtitles: {srt_path}")
                     self._append(f"Review sheet: {sheet}")
-                    self.close_btn.config(text="Close")
                     if sheet and self.cfg["review"].get("open_after", True):
                         webbrowser.open(Path(sheet).as_uri())
                     notify("FilterAgent", f"{self.movie.name} — filter EDL ready.")
                 elif kind == "error":
-                    self.stage_lbl.config(text="Error")
+                    self._finish("Error")
                     self._append(payload)
-                    self.close_btn.config(text="Close")
                     notify("FilterAgent", f"{self.movie.name} — processing failed.")
         except queue.Empty:
             pass
@@ -149,6 +192,10 @@ class ProgressWindow:
         self.log.config(state="disabled")
 
     def run(self):
-        threading.Thread(target=self._worker, daemon=True).start()
+        try:
+            self._start()
+        except Exception as e:
+            self._finish("Error")
+            self._append(f"Couldn't start the worker process: {e}")
         self._pump()
         self.root.mainloop()

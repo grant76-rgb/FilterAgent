@@ -55,6 +55,21 @@ def _download_subtitle(movie: Path, srt_path: Path, cfg: dict, log) -> bool:
         return False
 
 
+def _ffmpeg_to(args, dest: Path) -> bool:
+    """Runs ffmpeg into a temporary name beside `dest` and only renames it
+    into place once ffmpeg succeeds. These files are reused on the next run
+    just because they exist, so a cancelled run must never leave a truncated
+    one behind (a cut-short audio.wav would silently drop every mute after
+    the cut-off)."""
+    tmp = dest.with_name(f"{dest.stem}.partial{dest.suffix}")
+    r = _run(["ffmpeg", "-y", *args, str(tmp)])
+    if r.returncode == 0 and tmp.exists():
+        tmp.replace(dest)
+        return True
+    tmp.unlink(missing_ok=True)
+    return False
+
+
 def probe(movie: Path) -> dict:
     r = _run(["ffprobe", "-v", "quiet", "-print_format", "json",
               "-show_streams", "-show_format", str(movie)])
@@ -86,8 +101,7 @@ def run(movie: Path, workdir: Path, cfg: dict, log=print) -> dict:
 
         if text_subs:
             idx = text_subs[0]["index"]
-            _run(["ffmpeg", "-y", "-i", str(movie), "-map", f"0:{idx}",
-                  str(srt_path)])
+            _ffmpeg_to(["-i", str(movie), "-map", f"0:{idx}"], srt_path)
             log(f"Extracted subtitle track #{idx}")
         else:
             external = movie.with_suffix(".srt")
@@ -107,8 +121,8 @@ def run(movie: Path, workdir: Path, cfg: dict, log=print) -> dict:
                      or (srt_path is None and pcfg.get("whisper_fallback", True)))
     if need_whisper and not wav_path.exists():
         log("Extracting audio for Whisper...")
-        _run(["ffmpeg", "-y", "-i", str(movie), "-vn",
-              "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav_path)])
+        _ffmpeg_to(["-i", str(movie), "-vn",
+                    "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le"], wav_path)
 
     # --- Frames ----------------------------------------------------------------
     fps = cfg["sampling"]["fps"]
