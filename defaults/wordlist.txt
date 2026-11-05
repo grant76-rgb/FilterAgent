@@ -3,6 +3,8 @@
 # Lines starting with # are ignored, except "# category: NAME" markers,
 # which start a new section. Entries before the first marker belong to
 # "profanity". Categories are toggled independently in Settings > Wordlist.
+# Lines starting with ! are exceptions: phrases never muted or censored even
+# though they contain a listed word, e.g.  !hell's kitchen
 
 # category: profanity
 *damn*

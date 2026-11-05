@@ -12,6 +12,9 @@ profanity:
   mute_pad_after: 0.35
   use_whisper_alignment: false   # word-exact mutes; slower, needs faster-whisper
   whisper_fallback: true         # if no subtitles at all (embedded/external/downloaded), transcribe with faster-whisper instead of skipping
+  refine_word_edges: true       # stretch word mutes over the audible word (Whisper's timestamps often end early)
+  recheck_with_subtitles: true  # re-listen (larger model) to subtitle lines whose swears got no mute
+  recheck_model: large-v3       # faster-whisper model for that re-check (~3 GB, downloaded once)
   censor_subtitles: true         # write banned words as *** to an external .srt
   categories:                    # toggle wordlist.txt "# category: NAME" sections
     profanity: true

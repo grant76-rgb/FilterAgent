@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pysrt
 
-from .profanity import censor_text, load_wordlist
+from .profanity import censor_text, load_exceptions, load_wordlist
 
 
 def censor(assets: dict, movie: Path, cfg: dict, log=print) -> Path | None:
@@ -22,10 +22,11 @@ def censor(assets: dict, movie: Path, cfg: dict, log=print) -> Path | None:
         log("Wordlist empty — skipping censored subtitle export.")
         return None
 
-    subs = pysrt.open(str(assets["srt"]), error_handling=pysrt.ERROR_PASS)
+    exceptions = load_exceptions(Path(cfg["_wordlist_path"]))
+    subs = pysrt.open(str(assets["srt"]), encoding="utf-8", error_handling=pysrt.ERROR_PASS)
     changed = 0
     for cue in subs:
-        censored = censor_text(cue.text, patterns)
+        censored = censor_text(cue.text, patterns, exceptions)
         if censored != cue.text:
             changed += 1
         cue.text = censored
