@@ -6,7 +6,9 @@ wordlist and skipping scenes flagged by an automatic sexual-content filter.
 It can also write a censored `Movie.en.srt` with banned words swapped for
 asterisks, as an alternate subtitle track. For Plex and other players that
 ignore `.edl` files, `apply_edl.py` can bake the EDL into the file itself
-(see [Plex and other players](#plex-and-other-players)).
+(see [Plex and other players](#plex-and-other-players)). To do a whole
+season unattended, use `filter_batch.py` (see
+[Filter a whole season](#filter-a-whole-season)).
 
 Built for personal-use playback filtering — the same kind of use protected
 in the US by the Family Movie Act of 2005. The filter itself edits nothing:
@@ -28,6 +30,7 @@ separate, opt-in step — see [Limitations](#limitations).)
 - [Install](#install)
 - [Configure](#configure)
 - [Use it](#use-it)
+- [Filter a whole season](#filter-a-whole-season)
 - [Kodi setup](#kodi-setup)
 - [Plex and other players](#plex-and-other-players)
 - [Files & folders](#files--folders)
@@ -271,6 +274,51 @@ every movie from then on.
    the `.mkv`. The temporary working folder used during processing is
    deleted automatically — that's the whole output.
 
+## Filter a whole season
+
+To filter every episode of a season (or a whole show) unattended, run
+`filter_batch.py` from the install folder:
+
+```
+cd C:\Tools\FilterAgent
+python filter_batch.py "D:\TV\Show\Season 2"
+```
+
+It lists the episodes it's going to filter, then carries on in the
+background, so you can close the window.
+
+- **Same filter, same settings** as right-click → **Create filter EDL**.
+  Settings are re-read before each episode, so a change applies from the
+  next one. Add `--profanity-only` for the same shortcut as the
+  right-click entry of that name.
+- **One episode at a time, at below-normal priority**, so the PC stays
+  usable. With the sexual-content filter on, expect about an hour per
+  hour-long episode: a 13-episode season took just under 12 hours.
+- **The PC stays awake** until the last episode is done. It won't go to
+  sleep on its own, though the screen can still turn off (closing a
+  laptop lid or choosing Sleep still sleeps it). Your normal sleep
+  settings are back once it finishes.
+- **A notification** pops up when the batch is done. Progress, and the
+  reason any episode failed, goes to `%APPDATA%\FilterAgent\batch.log`;
+  one episode failing doesn't stop the rest.
+- **Safe to run again.** Episodes that already have an `.edl` are skipped,
+  so if the batch is interrupted (a restart, a power cut), run the same
+  command again and it picks up where it stopped. Files `apply_edl.py` has
+  already filtered, and an episode a right-click run is still working on,
+  are skipped too.
+- Folders are searched recursively, so you can point it at a whole show;
+  several files or folders can be given at once. `--dry-run` shows the
+  list without starting anything.
+- **There's no Pause button**, since there's no window. To stop early, run
+  the `taskkill` line it prints when it starts (the PID is also at the top
+  of the log); the episode in progress stops too and is redone next time.
+  `--wait` runs it in the window instead, with progress shown as it goes —
+  closing the window then stops it.
+- Each episode ends up with the usual `.edl`, `.en.srt` and
+  `.review.html`. The review sheets don't open by themselves: open each
+  one from the episode's folder and do the review pass before trusting
+  the EDL (or baking it in for Plex).
+
 ## Kodi setup
 
 Nothing to install or configure. Kodi automatically loads `MovieName.edl`
@@ -318,12 +366,26 @@ python apply_edl.py "D:\TV\Show" --out-dir "D:\TV (Filtered)"
 - Files FilterAgent is still working on, files already filtered, and files
   that are in use (playing) are skipped, so it's safe to point it at a
   whole show folder. `--dry-run` shows the plan without writing anything.
+- **Changed your mind after baking?** A skip baked into a file can't be
+  taken back in that file — the footage is gone from it. Start again from
+  the original:
+  - With `--out-dir`, the original and its `.edl` were never touched. Fix
+    the `.edl` (uncheck the skip on the review sheet and save), then
+    re-run the same command with `--force` to replace the filtered copy.
+  - With `--in-place`, move the original and its `.edl` and `.en.srt` back
+    from the backup folder (they're under their full path there, e.g.
+    `D:\FilterAgent originals\TV\Show\Episode.mkv`), replacing the
+    filtered file. Fix the `.edl`, then re-run the same command. Move
+    them rather than copy: a leftover backup blocks the re-run, so that
+    an original is never overwritten. Keep the backup folder until
+    you've watched what you baked.
 
 ## Files & folders
 
 | Path | Contents |
 |---|---|
 | `%APPDATA%\FilterAgent\` | Your `config.yaml` + `wordlist.txt` |
+| `%APPDATA%\FilterAgent\batch.log` | Progress of `filter_batch.py` runs, newest at the bottom (safe to delete) |
 | `<movie folder>\.filteragent\<name>\` | Working folder (sampled frames, cached scene/analysis data) — a few GB per film. Deleted automatically when a run finishes (along with the shared `.filteragent\` folder itself, if it's now empty), unless "Delete working files after each run" is unchecked in Settings > General (then it persists so re-runs are faster) or the run errored partway through. |
 | `<movie folder>\<name>.edl` | The output Kodi reads |
 | `<movie folder>\<name>.en.srt` | Censored subtitles (if enabled) |
